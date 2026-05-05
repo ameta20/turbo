@@ -20,6 +20,7 @@
 
 #include "lala/simplifier.hpp"
 #include "lala/vstore.hpp"
+#include "lala/equality.hpp"
 #include "lala/cartesian_product.hpp"
 #include "lala/interval.hpp"
 #include "lala/pc.hpp"
@@ -148,7 +149,8 @@ struct AbstractDomains {
   /** Version of the abstract domains with a simple allocator, to represent the best solutions. */
   using LIStore = VStore<universe_type, BasicAllocator>;
 
-  using IStore = VStore<Universe, StoreAllocator>;
+  using BaseStore = VStore<Universe, StoreAllocator>;
+  using IStore = Equality<BaseStore, StoreAllocator>;
 #ifdef TURBO_IPC_ABSTRACT_DOMAIN
   using IProp = PC<IStore, PropAllocator>; // Interval Propagators using general propagator completion.
 #else
@@ -283,7 +285,8 @@ struct AbstractDomains {
 
   CUDA void allocate(int num_vars, bool with_simplifier) {
     env = VarEnv<basic_allocator_type>{basic_allocator};
-    store = battery::allocate_shared<IStore, StoreAllocator>(store_allocator, env.extends_abstract_dom(), num_vars, store_allocator);
+    auto base_store = battery::allocate_shared<BaseStore, StoreAllocator>(store_allocator, env.extends_abstract_dom(), num_vars, store_allocator);
+    store = battery::allocate_shared<IStore, StoreAllocator>(store_allocator, base_store->aty(), base_store, store_allocator);
     iprop = battery::allocate_shared<IProp, PropAllocator>(prop_allocator, env.extends_abstract_dom(), store, prop_allocator);
     if(with_simplifier) {
       simplifier = battery::allocate_shared<ISimplifier, BasicAllocator>(basic_allocator, env.extends_abstract_dom(), store->aty(), iprop, basic_allocator);
