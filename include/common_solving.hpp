@@ -9,6 +9,8 @@
 #include <thread>
 #include <csignal>
 #include <random>
+#include <type_traits>
+
 
 #include "config.hpp"
 #include "statistics.hpp"
@@ -139,18 +141,35 @@ struct UniqueLightAlloc {
  *
  * Normally, you should use the fastest memory for the store, then for the propagators and then for the rest.
  */
+
+template <class Store>
+struct DefaultStore {
+  using type = Store;
+};
+
+template <class Store>
+struct EqualityStore {
+  using type = Equality<Store, typename Store::allocator_type>;
+};
+
+
+
 template <class Universe,
   class BasicAllocator,
   class PropAllocator,
-  class StoreAllocator>
+  class StoreAllocator,
+  template<class> class StoreType = DefaultStore>
 struct AbstractDomains {
   using universe_type = typename Universe::local_type;
 
   /** Version of the abstract domains with a simple allocator, to represent the best solutions. */
   using LIStore = VStore<universe_type, BasicAllocator>;
 
+ 
   using BaseStore = VStore<Universe, StoreAllocator>;
-  using IStore = Equality<BaseStore, StoreAllocator>;
+  using IStore = typename StoreType<BaseStore>::type;
+
+
 #ifdef TURBO_IPC_ABSTRACT_DOMAIN
   using IProp = PC<IStore, PropAllocator>; // Interval Propagators using general propagator completion.
 #else
@@ -177,10 +196,10 @@ struct AbstractDomains {
    *
    * NOTE: It is not the allocation itself that is slow, I think it calling many copy constructors for atomic variables (note that in simplifier we have an atomic memory if the underlying domain has one).
   */
-  template <class U2, class BasicAlloc2, class PropAllocator2, class StoreAllocator2>
+  template <class U2, class BasicAlloc2, class PropAllocator2, class StoreAllocator2, template<class> class StoreType2>
   CUDA AbstractDomains(const tag_gpu_block_copy&,
     bool enable_sharing, // `true` if the propagators are not in the shared memory.
-    const AbstractDomains<U2, BasicAlloc2, PropAllocator2, StoreAllocator2>& other,
+    const AbstractDomains<U2, BasicAlloc2, PropAllocator2, StoreAllocator2, StoreType2>& other,
     const BasicAllocator& basic_allocator = BasicAllocator(),
     const PropAllocator& prop_allocator = PropAllocator(),
     const StoreAllocator& store_allocator = StoreAllocator())
@@ -209,8 +228,8 @@ struct AbstractDomains {
     best = bab->optimum_ptr();
   }
 
-  template <class U2, class BasicAlloc2, class PropAllocator2, class StoreAllocator2>
-  CUDA AbstractDomains(const AbstractDomains<U2, BasicAlloc2, PropAllocator2, StoreAllocator2>& other,
+  template <class U2, class BasicAlloc2, class PropAllocator2, class StoreAllocator2, template<class> class StoreType2>
+  CUDA AbstractDomains(const AbstractDomains<U2, BasicAlloc2, PropAllocator2, StoreAllocator2, StoreType2>& other,
     const BasicAllocator& basic_allocator = BasicAllocator(),
     const PropAllocator& prop_allocator = PropAllocator(),
     const StoreAllocator& store_allocator = StoreAllocator(),
@@ -285,8 +304,17 @@ struct AbstractDomains {
 
   CUDA void allocate(int num_vars, bool with_simplifier) {
     env = VarEnv<basic_allocator_type>{basic_allocator};
-    auto base_store = battery::allocate_shared<BaseStore, StoreAllocator>(store_allocator, env.extends_abstract_dom(), num_vars, store_allocator);
-    store = battery::allocate_shared<IStore, StoreAllocator>(store_allocator, base_store->aty(), base_store, store_allocator);
+    auto base_store = battery::allocate_shared<BaseStore, StoreAllocator>(
+    store_allocator, env.extends_abstract_dom(), num_vars, store_allocator);
+
+  if constexpr(std::is_same_v<IStore, BaseStore>) {
+    store = base_store;
+  }
+  else {
+    store = battery::allocate_shared<IStore, StoreAllocator>(
+      store_allocator, base_store->aty(), base_store, store_allocator);
+  }
+
     iprop = battery::allocate_shared<IProp, PropAllocator>(prop_allocator, env.extends_abstract_dom(), store, prop_allocator);
     if(with_simplifier) {
       simplifier = battery::allocate_shared<ISimplifier, BasicAllocator>(basic_allocator, env.extends_abstract_dom(), store->aty(), iprop, basic_allocator);

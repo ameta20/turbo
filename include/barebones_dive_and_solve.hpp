@@ -48,10 +48,19 @@ namespace barebones {
   using ConcurrentAllocator = bt::managed_allocator;
 #endif
 
+
+template <class Universe, class Allocator = battery::standard_allocator>
+using CP = AbstractDomains<Universe,
+  battery::statistics_allocator<Allocator>,
+  battery::statistics_allocator<UniqueLightAlloc<Allocator, 0>>,
+  battery::statistics_allocator<UniqueLightAlloc<Allocator, 1>>,
+  EqualityStore>;
+
 using GridCP = AbstractDomains<Itv,
   bt::statistics_allocator<ConcurrentAllocator>,
   bt::statistics_allocator<UniqueLightAlloc<ConcurrentAllocator, 0>>,
-  bt::statistics_allocator<UniqueLightAlloc<ConcurrentAllocator, 1>>>;
+  bt::statistics_allocator<UniqueLightAlloc<ConcurrentAllocator, 1>>,
+  EqualityStore>;
 
 /** Data shared between CPU and GPU. */
 struct UnifiedData {
@@ -78,18 +87,23 @@ struct UnifiedData {
 };
 
 struct GridData;
-using IStore = VStore<Itv, bt::pool_allocator>;
+using BaseStore = VStore<Itv, bt::pool_allocator>;
+using IStore = Equality<BaseStore, bt::pool_allocator>;
 using IProp = PIR<IStore, bt::pool_allocator>;
+
+using GlobalBaseStore = VStore<Itv, bt::global_allocator>;
+using GlobalIStore = Equality<GlobalBaseStore, bt::global_allocator>;
+
 using UB = ZUB<typename Itv::LB::value_type, bt::atomic_memory_grid>;
 using strategies_type = bt::vector<StrategyType<bt::global_allocator>, bt::global_allocator>;
 
 /** Data private to a single block. */
 struct BlockData {
   /** The store of variables at the root of the current subproblem. */
-  abstract_ptr<VStore<Itv, bt::global_allocator>> root_store;
+  abstract_ptr<GlobalIStore> root_store;
 
   /** The best solution found so far in this block. */
-  abstract_ptr<VStore<Itv, bt::global_allocator>> best_store;
+  abstract_ptr<GlobalBaseStore> best_store;
 
   /** The current store of variables.
    * We use a `pool_allocator`, this allows to easily switch between global memory and shared memory, if the store of variables can fit inside.
@@ -163,9 +177,9 @@ struct BlockData {
       bt::pool_allocator shared_mem_pool(mem_config.make_shared_pool(shared_mem));
       bt::pool_allocator store_allocator(mem_config.make_store_pool(shared_mem_pool));
       bt::pool_allocator prop_allocator(mem_config.make_prop_pool(shared_mem_pool));
-      root_store = bt::make_shared<VStore<Itv, bt::global_allocator>, bt::global_allocator>(u_store);
-      best_store = bt::make_shared<VStore<Itv, bt::global_allocator>, bt::global_allocator>(u_store);
-      store = bt::allocate_shared<IStore, bt::pool_allocator>(store_allocator, u_store, store_allocator);
+      root_store = bt::make_shared<GlobalIStore, bt::global_allocator>(u_store);
+      best_store = bt::make_shared<GlobalBaseStore, bt::global_allocator>(u_store.get_sub());
+      store = bt::allocate_shared<IStore, bt::pool_allocator>(store_allocator, u_store, store_allocator); //changed
       iprop = bt::allocate_shared<IProp, bt::pool_allocator>(prop_allocator, u_iprop, store, prop_allocator);
     }
   }
@@ -471,6 +485,7 @@ void barebones_dive_and_solve(const Configuration<battery::standard_allocator>& 
   /** We start with some preprocessing to reduce the number of variables and constraints. */
   CP<Itv> cp(config);
   cp.preprocess();
+  cp.iprop->get_sub().copy_eq_bytecodes(cp.iprop->get_bytecodes()); // added 
   if(cp.iprop->is_bot()) {
     cp.print_final_solution();
     cp.print_mzn_statistics();
@@ -557,15 +572,18 @@ MemoryConfig configure_gpu_barebones(CP<Itv>& cp) {
   /** III. Size of the heap global memory.
    * The estimation is very conservative, normally we should not run out of memory.
    * */
-  size_t store_bytes = gpu_sizeof<IStore>() + gpu_sizeof<abstract_ptr<IStore>>() + cp.store->vars() * gpu_sizeof<Itv>();
+  size_t store_bytes = gpu_sizeof<IStore>() + gpu_sizeof<abstract_ptr<IStore>>()  + gpu_sizeof<BaseStore>() + gpu_sizeof<abstract_ptr<BaseStore>>() 
+      + cp.store->vars() * gpu_sizeof<Itv>() + cp.store->vars() * gpu_sizeof<typename IStore::equiv_type>();
+  size_t best_store_bytes = gpu_sizeof<GlobalBaseStore>() + gpu_sizeof<abstract_ptr<GlobalBaseStore>>() + cp.store->vars() * gpu_sizeof<Itv>();
   size_t iprop_bytes = gpu_sizeof<IProp>() + gpu_sizeof<abstract_ptr<IProp>>() + cp.iprop->num_deductions() * gpu_sizeof<bytecode_type>() + gpu_sizeof<typename IProp::bytecodes_type>();
   size_t mem_per_block = gpu_sizeof<BlockData>()
-    + store_bytes * size_t{3}  // current, root, best.
+    + store_bytes * size_t{2}  // current, root
+    + best_store_bytes    // best
     + store_bytes * size_t{2}  // search strategies
     + iprop_bytes * size_t{2}
     + cp.iprop->num_deductions() * size_t{4} * gpu_sizeof<int>()  // fixpoint engine
     + (gpu_sizeof<int>() + gpu_sizeof<LightBranch<Itv>>()) * size_t{MAX_SEARCH_DEPTH};
-  size_t estimated_global_mem = gpu_sizeof<UnifiedData>() + store_bytes * size_t{5} + iprop_bytes +
+  size_t estimated_global_mem = gpu_sizeof<UnifiedData>() + store_bytes * size_t{4} + best_store_bytes + iprop_bytes +
     gpu_sizeof<GridData>();
 
   size_t mem_for_blocks = deviceProp.totalGlobalMem - estimated_global_mem - (deviceProp.totalGlobalMem / 100 * 10);
@@ -997,7 +1015,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
           grid_data.appx_best_bound.meet(block_data.best_bound);
           block_data.stats.timers.update_timer(Timer::LATEST_BEST_OBJ_FOUND, block_data.start_time);
         }
-        block_data.store->copy_to(group, *block_data.best_store);
+        block_data.store->get_sub().copy_to(group, *block_data.best_store);
         if(threadIdx.x == 0) {
           block_data.stats.solutions++;
           if(config.verbose_solving >= 2) {
@@ -1084,6 +1102,7 @@ void barebones_dive_and_solve(const Configuration<battery::standard_allocator>& 
 }
 
 #endif
+
 
 } // namespace barebones
 
