@@ -87,12 +87,12 @@ struct UnifiedData {
 };
 
 struct GridData;
-using BaseStore = VStore<Itv, bt::pool_allocator>;
-using IStore = Equality<BaseStore, bt::pool_allocator>;
-using IProp = PIR<IStore, bt::pool_allocator>;
+using IStore = VStore<Itv, bt::pool_allocator>;
+using EIStore = Equality<IStore, bt::pool_allocator>;
+using IProp = PIR<EIStore, bt::pool_allocator>;
 
-using GlobalBaseStore = VStore<Itv, bt::global_allocator>;
-using GlobalIStore = Equality<GlobalBaseStore, bt::global_allocator>;
+using GlobalIStore = VStore<Itv, bt::global_allocator>;
+using GlobalEIStore = Equality<GlobalIStore, bt::global_allocator>;
 
 using UB = ZUB<typename Itv::LB::value_type, bt::atomic_memory_grid>;
 using strategies_type = bt::vector<StrategyType<bt::global_allocator>, bt::global_allocator>;
@@ -100,15 +100,15 @@ using strategies_type = bt::vector<StrategyType<bt::global_allocator>, bt::globa
 /** Data private to a single block. */
 struct BlockData {
   /** The store of variables at the root of the current subproblem. */
-  abstract_ptr<GlobalIStore> root_store;
+  abstract_ptr<GlobalEIStore> root_store;
 
   /** The best solution found so far in this block. */
-  abstract_ptr<GlobalBaseStore> best_store;
+  abstract_ptr<GlobalIStore> best_store;
 
   /** The current store of variables.
    * We use a `pool_allocator`, this allows to easily switch between global memory and shared memory, if the store of variables can fit inside.
    * */
-  abstract_ptr<IStore> store;
+  abstract_ptr<EIStore> store;
 
   /** The propagators implemented as an array of bytecodes.
    * Similarly, the propagators can be stored in the global or shared memory.
@@ -177,9 +177,9 @@ struct BlockData {
       bt::pool_allocator shared_mem_pool(mem_config.make_shared_pool(shared_mem));
       bt::pool_allocator store_allocator(mem_config.make_store_pool(shared_mem_pool));
       bt::pool_allocator prop_allocator(mem_config.make_prop_pool(shared_mem_pool));
-      root_store = bt::make_shared<GlobalIStore, bt::global_allocator>(u_store);
-      best_store = bt::make_shared<GlobalBaseStore, bt::global_allocator>(u_store.get_sub());
-      store = bt::allocate_shared<IStore, bt::pool_allocator>(store_allocator, u_store, store_allocator); //changed
+      root_store = bt::make_shared<GlobalEIStore, bt::global_allocator>(u_store);
+      best_store = bt::make_shared<GlobalIStore, bt::global_allocator>(u_store.get_sub());
+      store = bt::allocate_shared<EIStore, bt::pool_allocator>(store_allocator, u_store, store_allocator); //changed
       iprop = bt::allocate_shared<IProp, bt::pool_allocator>(prop_allocator, u_iprop, store, prop_allocator);
     }
   }
@@ -188,7 +188,7 @@ struct BlockData {
   __device__ void deallocate_shared_data() {
     if(threadIdx.x == 0) {
       // NOTE: .reset() does not work because it does not reset the allocator, which is itself allocated in global memory.
-      store = abstract_ptr<IStore>();
+      store = abstract_ptr<EIStore>();
       iprop = abstract_ptr<IProp>();
     }
   }
@@ -572,18 +572,19 @@ MemoryConfig configure_gpu_barebones(CP<Itv>& cp) {
   /** III. Size of the heap global memory.
    * The estimation is very conservative, normally we should not run out of memory.
    * */
-  size_t store_bytes = gpu_sizeof<IStore>() + gpu_sizeof<abstract_ptr<IStore>>()  + gpu_sizeof<BaseStore>() + gpu_sizeof<abstract_ptr<BaseStore>>() 
-      + cp.store->vars() * gpu_sizeof<Itv>() + cp.store->vars() * gpu_sizeof<typename IStore::equiv_type>();
-  size_t best_store_bytes = gpu_sizeof<GlobalBaseStore>() + gpu_sizeof<abstract_ptr<GlobalBaseStore>>() + cp.store->vars() * gpu_sizeof<Itv>();
+  size_t store_bytes = gpu_sizeof<IStore>() + gpu_sizeof<abstract_ptr<IStore>>() + cp.store->vars() * gpu_sizeof<Itv>();
+  size_t equality_bytes = gpu_sizeof<EIStore>() + gpu_sizeof<abstract_ptr<EIStore>>() + cp.store->vars() * gpu_sizeof<typename EIStore::equiv_type>() ; // added
+  size_t best_store_bytes = gpu_sizeof<GlobalIStore>() + gpu_sizeof<abstract_ptr<GlobalIStore>>() + cp.store->vars() * gpu_sizeof<Itv>();
   size_t iprop_bytes = gpu_sizeof<IProp>() + gpu_sizeof<abstract_ptr<IProp>>() + cp.iprop->num_deductions() * gpu_sizeof<bytecode_type>() + gpu_sizeof<typename IProp::bytecodes_type>();
+  size_t equality_store_bytes = store_bytes + equality_bytes;
   size_t mem_per_block = gpu_sizeof<BlockData>()
-    + store_bytes * size_t{2}  // current, root
+    + equality_store_bytes * size_t{2}  // current, root
     + best_store_bytes    // best
-    + store_bytes * size_t{2}  // search strategies
+    + equality_store_bytes * size_t{2}  // search strategies
     + iprop_bytes * size_t{2}
     + cp.iprop->num_deductions() * size_t{4} * gpu_sizeof<int>()  // fixpoint engine
     + (gpu_sizeof<int>() + gpu_sizeof<LightBranch<Itv>>()) * size_t{MAX_SEARCH_DEPTH};
-  size_t estimated_global_mem = gpu_sizeof<UnifiedData>() + store_bytes * size_t{4} + best_store_bytes + iprop_bytes +
+  size_t estimated_global_mem = gpu_sizeof<UnifiedData>() + equality_store_bytes * size_t{4} + best_store_bytes + iprop_bytes +
     gpu_sizeof<GridData>();
 
   size_t mem_for_blocks = deviceProp.totalGlobalMem - estimated_global_mem - (deviceProp.totalGlobalMem / 100 * 10);
@@ -614,10 +615,10 @@ MemoryConfig configure_gpu_barebones(CP<Itv>& cp) {
   int blocks_per_sm = std::max(1, (cp.stats.num_blocks + deviceProp.multiProcessorCount - 1) / deviceProp.multiProcessorCount);
   MemoryConfig mem_config;
   if(config.only_global_memory) {
-    mem_config = MemoryConfig(store_bytes, iprop_bytes);
+    mem_config = MemoryConfig(equality_store_bytes, iprop_bytes);
   }
   else {
-    mem_config = MemoryConfig((void*) gpu_barebones_solve, config.verbose_solving, blocks_per_sm, store_bytes, iprop_bytes);
+    mem_config = MemoryConfig((void*) gpu_barebones_solve, config.verbose_solving, blocks_per_sm, equality_store_bytes, iprop_bytes);
   }
   mem_config.print_mzn_statistics(config, cp.stats);
   return mem_config;
@@ -942,24 +943,78 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #endif
   switch(config.fixpoint) {
     case FixpointKind::AC1: {
-      fp_iterations = fp_engine.fixpoint(
-#ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
-        iprop.num_deductions(),
-#endif
-        [&](int i){ return iprop.deduce(i); },
-        [&](){ return iprop.is_bot(); });
-      if(threadIdx.x == 0) {
-        block_data.stats.num_deductions += fp_iterations * num_active;
-      }
-      break;
+  __shared__ bool eq_changed;
+  __shared__ bool eq_round_changed;
+  int total_fp_iterations = 0;
+  int eq_iterations = 0;
+
+  do {
+    if(threadIdx.x == 0) {
+      eq_changed = false;
     }
+    __syncthreads();
+
+#ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
+    int num_active = iprop.num_deductions();
+#else
+    int num_active = fp_engine.num_active();
+#endif
+
+    fp_iterations = fp_engine.fixpoint(
+#ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
+      iprop.num_deductions(),
+#endif
+      [&](int i) {
+        return iprop.deduce(i);
+      },
+      [&](){ return iprop.is_bot(); });
+
+    total_fp_iterations += fp_iterations;
+
+    if(threadIdx.x == 0) {
+      block_data.stats.num_deductions += fp_iterations * num_active;
+    }
+
+    __syncthreads();
+
+    if(!iprop.is_bot() && threadIdx.x == 0) {
+        do {
+          eq_round_changed = false;
+
+          for(int i = 0; i < iprop.num_deductions(); ++i) {
+            eq_round_changed |= iprop.deduce_equality(i);
+          }
+
+          eq_changed |= eq_round_changed;
+          ++eq_iterations;
+        } while(eq_round_changed && !iprop.is_bot());
+    }
+
+
+    __syncthreads();
+
+#ifndef TURBO_NO_ENTAILED_PROP_REMOVAL
+    if(eq_changed) {
+      fp_engine.reset(iprop.num_deductions());
+    }
+#endif
+
+    __syncthreads();
+
+  } while(eq_changed && !iprop.is_bot());
+
+  fp_iterations = total_fp_iterations;
+  break;
+}
     case FixpointKind::WAC1: {
       if(num_active <= config.wac1_threshold) {
         fp_iterations = fp_engine.fixpoint(
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
         iprop.num_deductions(),
 #endif
-          [&](int i){ return iprop.deduce(i); },
+          [&](int i) {
+               return iprop.deduce_with_equality(i);
+            },
           [&](){ return iprop.is_bot(); });
         if(threadIdx.x == 0) {
           block_data.stats.num_deductions += fp_iterations * num_active;
@@ -970,7 +1025,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
           iprop.num_deductions(),
 #endif
-          [&](int i){ return warp_fixpoint<CUDA_THREADS_PER_BLOCK>(iprop, i, warp_iterations); },
+          [&](int i){ return warp_fixpoint_with_equality<CUDA_THREADS_PER_BLOCK>(iprop, i, warp_iterations); },
           [&](){ return iprop.is_bot(); });
         if(threadIdx.x == 0) {
           for(int i = 0; i < CUDA_THREADS_PER_BLOCK/32; ++i) {
@@ -1015,6 +1070,22 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
           grid_data.appx_best_bound.meet(block_data.best_bound);
           block_data.stats.timers.update_timer(Timer::LATEST_BEST_OBJ_FOUND, block_data.start_time);
         }
+
+        if(threadIdx.x == 0) {
+          for(int i = 0; i < block_data.store->vars(); ++i) {
+            block_data.store->meet_member_to_representative(i);
+          }
+        }
+        __syncthreads();
+
+        for(int i = threadIdx.x; i < block_data.store->vars(); i += blockDim.x) {
+          block_data.store->meet_representative_to_member(i);
+        }
+        __syncthreads();
+
+block_data.store->get_sub().copy_to(group, *block_data.best_store);
+
+block_data.store->get_sub().copy_to(group, *block_data.best_store);
         block_data.store->get_sub().copy_to(group, *block_data.best_store);
         if(threadIdx.x == 0) {
           block_data.stats.solutions++;
