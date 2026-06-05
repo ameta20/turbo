@@ -94,6 +94,7 @@ using IProp = PIR<EIStore, bt::pool_allocator>;
 using GlobalIStore = VStore<Itv, bt::global_allocator>;
 using GlobalEIStore = Equality<GlobalIStore, bt::global_allocator>;
 
+
 using UB = ZUB<typename Itv::LB::value_type, bt::atomic_memory_grid>;
 using strategies_type = bt::vector<StrategyType<bt::global_allocator>, bt::global_allocator>;
 
@@ -594,7 +595,7 @@ MemoryConfig configure_gpu_barebones(CP<Itv>& cp) {
     printf("%% WARNING: The estimated global memory is larger than 90%% of the total global memory.\n\
 %% It is possible to run out of memory during solving.\n");
   }
-  CUDAEX(cudaDeviceSetLimit(cudaLimitMallocHeapSize, deviceProp.totalGlobalMem / 100 * 97));
+  CUDAEX(cudaDeviceSetLimit(cudaLimitMallocHeapSize, deviceProp.totalGlobalMem / 100 * 90));
   cp.stats.print_memory_statistics(cp.config.verbose_solving, "heap_memory", estimated_global_mem);
   cp.stats.print_memory_statistics(cp.config.verbose_solving, "mem_per_block", mem_per_block);
   cp.stats.print_memory_statistics(cp.config.verbose_solving, "total_global_mem_bytes", deviceProp.totalGlobalMem);
@@ -943,78 +944,24 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #endif
   switch(config.fixpoint) {
     case FixpointKind::AC1: {
-  __shared__ bool eq_changed;
-  __shared__ bool eq_round_changed;
-  int total_fp_iterations = 0;
-  int eq_iterations = 0;
-
-  do {
-    if(threadIdx.x == 0) {
-      eq_changed = false;
-    }
-    __syncthreads();
-
+      fp_iterations = fp_engine.fixpoint(
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
-    int num_active = iprop.num_deductions();
-#else
-    int num_active = fp_engine.num_active();
+        iprop.num_deductions(),
 #endif
-
-    fp_iterations = fp_engine.fixpoint(
-#ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
-      iprop.num_deductions(),
-#endif
-      [&](int i) {
-        return iprop.deduce(i);
-      },
-      [&](){ return iprop.is_bot(); });
-
-    total_fp_iterations += fp_iterations;
-
-    if(threadIdx.x == 0) {
-      block_data.stats.num_deductions += fp_iterations * num_active;
+        [&](int i){ return iprop.deduce_with_equality(i); },
+        [&](){ return iprop.is_bot(); });
+      if(threadIdx.x == 0) {
+        block_data.stats.num_deductions += fp_iterations * num_active;
+      }
+      break;
     }
-
-    __syncthreads();
-
-    if(!iprop.is_bot() && threadIdx.x == 0) {
-        do {
-          eq_round_changed = false;
-
-          for(int i = 0; i < iprop.num_deductions(); ++i) {
-            eq_round_changed |= iprop.deduce_equality(i);
-          }
-
-          eq_changed |= eq_round_changed;
-          ++eq_iterations;
-        } while(eq_round_changed && !iprop.is_bot());
-    }
-
-
-    __syncthreads();
-
-#ifndef TURBO_NO_ENTAILED_PROP_REMOVAL
-    if(eq_changed) {
-      fp_engine.reset(iprop.num_deductions());
-    }
-#endif
-
-    __syncthreads();
-
-  } while(eq_changed && !iprop.is_bot());
-
-  fp_iterations = total_fp_iterations;
-  break;
-}
     case FixpointKind::WAC1: {
       if(num_active <= config.wac1_threshold) {
         fp_iterations = fp_engine.fixpoint(
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
         iprop.num_deductions(),
 #endif
-          [&](int i) {
-               return iprop.deduce_with_equality(i);
-            },
+          [&](int i){ return iprop.deduce(i); },
           [&](){ return iprop.is_bot(); });
         if(threadIdx.x == 0) {
           block_data.stats.num_deductions += fp_iterations * num_active;
@@ -1025,7 +972,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
           iprop.num_deductions(),
 #endif
-          [&](int i){ return warp_fixpoint_with_equality<CUDA_THREADS_PER_BLOCK>(iprop, i, warp_iterations); },
+          [&](int i){ return warp_fixpoint<CUDA_THREADS_PER_BLOCK>(iprop, i, warp_iterations); },
           [&](){ return iprop.is_bot(); });
         if(threadIdx.x == 0) {
           for(int i = 0; i < CUDA_THREADS_PER_BLOCK/32; ++i) {
@@ -1071,21 +1018,11 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
           block_data.stats.timers.update_timer(Timer::LATEST_BEST_OBJ_FOUND, block_data.start_time);
         }
 
-        if(threadIdx.x == 0) {
-          for(int i = 0; i < block_data.store->vars(); ++i) {
-            block_data.store->meet_member_to_representative(i);
-          }
-        }
-        __syncthreads();
-
         for(int i = threadIdx.x; i < block_data.store->vars(); i += blockDim.x) {
-          block_data.store->meet_representative_to_member(i);
+            block_data.store->meet_equivalence_class(i);
         }
         __syncthreads();
 
-block_data.store->get_sub().copy_to(group, *block_data.best_store);
-
-block_data.store->get_sub().copy_to(group, *block_data.best_store);
         block_data.store->get_sub().copy_to(group, *block_data.best_store);
         if(threadIdx.x == 0) {
           block_data.stats.solutions++;
