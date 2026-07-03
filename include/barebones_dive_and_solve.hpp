@@ -929,7 +929,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
   auto& config = unified_data.root.config;
   IProp& iprop = *block_data.iprop;
   auto group = cooperative_groups::this_thread_block();
-  bool apply_eq_deduction = (block_data.depth%2 == 0);
+  //bool apply_eq_deduction = (block_data.depth%1 == 0);
 
   TIMEPOINT(SEARCH);
   if(threadIdx.x == 0) {
@@ -949,9 +949,9 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
         iprop.num_deductions(),
 #endif
-        [&](int i){ return apply_eq_deduction
-    ? iprop.deduce_with_equality(i)
-    : iprop.deduce(i); },
+        [&](int i){ return 
+          //apply_eq_deduction ? iprop.deduce_with_equality(i): 
+          iprop.deduce(i); },
         [&](){ return iprop.is_bot(); });
       if(threadIdx.x == 0) {
         block_data.stats.num_deductions += fp_iterations * num_active;
@@ -1046,6 +1046,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
     block_data.stats.fixpoint_iterations += fp_iterations;
     block_data.stats.nodes++;
     block_data.stats.fails += (iprop.is_bot() ? 1 : 0);
+    block_data.stats.failure_depth_sum += (iprop.is_bot() ? block_data.depth : 0);
     block_data.stats.depth_max = battery::max(block_data.stats.depth_max, block_data.depth);
 
     // IV. Checking stopping conditions.
