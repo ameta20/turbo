@@ -949,9 +949,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
         iprop.num_deductions(),
 #endif
-        [&](int i){ return 
-          //apply_eq_deduction ? iprop.deduce_with_equality(i): 
-          iprop.deduce(i); },
+        [&](int i){ return iprop.deduce_with_equality(i); },
         [&](){ return iprop.is_bot(); });
       if(threadIdx.x == 0) {
         block_data.stats.num_deductions += fp_iterations * num_active;

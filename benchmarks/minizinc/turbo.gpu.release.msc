@@ -1,8 +1,8 @@
 {
-    "executable": "/home/ptalbot/repositories/lattice-land/turbo/build/gpu-release/turbo",
+    "executable": "/home/users/u103108/lattice-land/turbo/build/gpu-release-local/turbo",
     "id": "turbo.gpu.release",
     "isGUIApplication": false,
-    "mznlib": "/home/ptalbot/repositories/lattice-land/turbo/benchmarks/minizinc/mzn-lib",
+    "mznlib": "/home/users/u103108/lattice-land/turbo/benchmarks/minizinc/mzn-lib",
     "mznlibVersion": 1,
     "name": "Turbo (gpu,release)",
     "needsMznExecutable": false,
