@@ -141,6 +141,7 @@ struct Statistics {
   int num_blocks; // The real count of config.or_nodes on GPU.
   size_t nodes;
   size_t fails;
+  size_t failure_depth_sum;
   size_t solutions;
   int depth_max;
   bool exhaustive;
@@ -156,7 +157,7 @@ struct Statistics {
   CUDA Statistics(size_t variables, size_t constraints, bool optimization, bool print_statistics):
     variables(variables), constraints(constraints), optimization(optimization),
     print_statistics(print_statistics), num_blocks(1),
-    nodes(0), fails(0), solutions(0),
+    nodes(0), fails(0), failure_depth_sum(0), solutions(0),
     depth_max(0), exhaustive(true),
     eps_solved_subproblems(0), eps_num_subproblems(1), eps_skipped_subproblems(0),
     num_blocks_done(0), fixpoint_iterations(0), num_deductions(0),
@@ -171,7 +172,7 @@ struct Statistics {
   CUDA Statistics(const Statistics<Alloc>& other):
     variables(other.variables), constraints(other.constraints), optimization(other.optimization),
     print_statistics(other.print_statistics), num_blocks(other.num_blocks),
-    nodes(other.nodes), fails(other.fails), solutions(other.solutions),
+    nodes(other.nodes), fails(other.fails), failure_depth_sum(other.failure_depth_sum), solutions(other.solutions),
     depth_max(other.depth_max), exhaustive(other.exhaustive),
     eps_solved_subproblems(other.eps_solved_subproblems), eps_num_subproblems(other.eps_num_subproblems),
     eps_skipped_subproblems(other.eps_skipped_subproblems), num_blocks_done(other.num_blocks_done),
@@ -183,6 +184,7 @@ struct Statistics {
   CUDA void meet(const Statistics<Alloc>& other) {
     nodes += other.nodes;
     fails += other.fails;
+    failure_depth_sum += other.failure_depth_sum;
     solutions += other.solutions;
     depth_max = battery::max(depth_max, other.depth_max);
     exhaustive = exhaustive && other.exhaustive;
@@ -335,10 +337,21 @@ public:
     print_stat(name, to_sec(timers.time_of(timer)));
   }
 
+  
+  CUDA void print_avg_depth_failure() const {
+    if(print_statistics) {
+      double avg_depth_failure = fails == 0
+        ? 0.0
+        : static_cast<double>(failure_depth_sum) / static_cast<double>(fails);
+      printf("%%%%%%mzn-stat: avg_depth_failure=%lf\n", avg_depth_failure);
+    }
+  }
+
   CUDA void print_mzn_statistics(int verbose = 0) const {
     print_stat("num_blocks", num_blocks);
     print_human_stat(verbose, "nodes", nodes);
     print_stat("failures", fails);
+    print_avg_depth_failure();
     print_stat("variables", variables);
     print_stat("propagators", constraints);
     print_stat("peakDepth", depth_max);
@@ -398,7 +411,7 @@ public:
       }
     }
     else {
-      assert(solutions == 0);
+      assert(solutions == 0); 
       if(exhaustive) {
         printf("=====UNSATISFIABLE=====\n");
       }

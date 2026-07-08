@@ -1017,6 +1017,7 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
     block_data.stats.fixpoint_iterations += fp_iterations;
     block_data.stats.nodes++;
     block_data.stats.fails += (iprop.is_bot() ? 1 : 0);
+    block_data.stats.failure_depth_sum += (iprop.is_bot() ? block_data.depth : 0);
     block_data.stats.depth_max = battery::max(block_data.stats.depth_max, block_data.depth);
 
     // IV. Checking stopping conditions.
