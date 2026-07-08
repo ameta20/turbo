@@ -805,7 +805,7 @@ private:
       auto width = (*store)[i].width().lb();
       if(width.is_top()) {
         stats_tcn.num_unbounded_vars++;
-      }updat
+      }
       else {
         stats_tcn.histogram_vars_dom_size[width.value() + 1]++;
       }
