@@ -996,7 +996,9 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
           block_data.best_bound.meet(Itv::UB(block_data.store->project(grid_data.obj_var).lb().value()));
           grid_data.appx_best_bound.meet(block_data.best_bound);
           block_data.stats.timers.update_timer(Timer::LATEST_BEST_OBJ_FOUND, block_data.start_time);
+          block_data.stats.nodes_at_best_obj = block_data.stats.nodes + 1;
         }
+
         block_data.store->copy_to(group, *block_data.best_store);
         if(threadIdx.x == 0) {
           block_data.stats.solutions++;
@@ -1057,6 +1059,7 @@ __global__ void reduce_blocks(UnifiedData* unified_data, GridData* grid_data) {
         if(is_better || (equal_bound && block_best_time <= grid_best_time)) {
           grid_best_time = block_best_time;
           best_block_idx = i;
+          root.stats.nodes_at_best_obj = block.stats.nodes_at_best_obj;
         }
       }
     }
