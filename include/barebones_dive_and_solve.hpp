@@ -1049,6 +1049,7 @@ __global__ void reduce_blocks(UnifiedData* unified_data, GridData* grid_data) {
     if(block.stats.solutions > 0) {
       if(root.bab->is_satisfaction()) {
         block.best_store->extract(*root.best);
+        root.stats.nodes_at_best_obj = block.stats.nodes_at_best_obj;
         break;
       }
       else {
