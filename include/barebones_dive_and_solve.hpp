@@ -1047,7 +1047,26 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
     block_data.stats.fails += (iprop.is_bot() ? 1 : 0);
     block_data.stats.failure_depth_sum += (iprop.is_bot() ? block_data.depth : 0);
     block_data.stats.depth_max = battery::max(block_data.stats.depth_max, block_data.depth);
+  }
 
+   // III'. Equality domain metrics, printed before the caller commits to the next branch (or backtracks).
+  if(threadIdx.x == 0 && config.verbose_solving >= 1) {
+    auto& eq = *block_data.store;
+    grid_data.print_lock.acquire();
+    printf("%% [eq-metrics] node=%" PRIu64 " depth=%d is_bot=%d vars=%d classes=%d rep_mismatches=%d max_chain_depth=%d fp_iterations=%d\n",
+      static_cast<uint64_t>(block_data.stats.nodes),
+      block_data.depth,
+      (int)iprop.is_bot(),
+      eq.vars(),
+      eq.num_classes(),
+      eq.num_rep_mismatches(),
+      eq.max_chain_depth(),
+      fp_iterations);
+    grid_data.print_lock.release();
+  }
+
+
+     if(threadIdx.x == 0) {
     // IV. Checking stopping conditions.
 
     if(block_data.stats.nodes >= config.stop_after_n_nodes
