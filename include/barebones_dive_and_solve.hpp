@@ -926,6 +926,12 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 {
   __shared__ int warp_iterations[CUDA_THREADS_PER_BLOCK/32];
   warp_iterations[threadIdx.x / 32] = 0;
+  __shared__ unsigned int eq_conflict_flag;
+ if(threadIdx.x == 0) {
+    eq_conflict_flag = 0;
+  }
+  __syncthreads();
+
   auto& config = unified_data.root.config;
   IProp& iprop = *block_data.iprop;
   auto group = cooperative_groups::this_thread_block();
@@ -949,10 +955,13 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
 #ifdef TURBO_NO_ENTAILED_PROP_REMOVAL
         iprop.num_deductions(),
 #endif
-        [&](int i){ return iprop.deduce_with_equality(i); },
+        [&](int i){ return iprop.deduce_with_equality(i, eq_conflict_flag); },
         [&](){ return iprop.is_bot(); });
       if(threadIdx.x == 0) {
         block_data.stats.num_deductions += fp_iterations * num_active;
+         if(iprop.is_bot() && eq_conflict_flag != 0) {
+          block_data.stats.eq_deduce_fails++;
+        }
       }
       break;
     }
@@ -1017,7 +1026,6 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
           block_data.best_bound.meet(Itv::UB(block_data.store->project(grid_data.obj_var).lb().value()));
           grid_data.appx_best_bound.meet(block_data.best_bound);
           block_data.stats.timers.update_timer(Timer::LATEST_BEST_OBJ_FOUND, block_data.start_time);
-          block_data.stats.nodes_at_best_obj = block_data.stats.nodes + 1;
         }
 
         for(int i = threadIdx.x; i < block_data.store->vars(); i += blockDim.x) {
@@ -1028,6 +1036,10 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
         block_data.store->get_sub().copy_to(group, *block_data.best_store);
         if(threadIdx.x == 0) {
           block_data.stats.solutions++;
+          block_data.stats.eq_classes_best_solution = block_data.store->num_classes();
+          block_data.stats.eq_largest_class_best_solution = block_data.store->largest_class_size();
+          block_data.stats.nodes_at_best_obj = block_data.stats.nodes + 1;
+
           if(config.verbose_solving >= 2) {
             grid_data.print_lock.acquire();
             printf("%% objective="); block_data.best_bound.print(); printf("\n");
@@ -1047,10 +1059,10 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
     block_data.stats.fails += (iprop.is_bot() ? 1 : 0);
     block_data.stats.failure_depth_sum += (iprop.is_bot() ? block_data.depth : 0);
     block_data.stats.depth_max = battery::max(block_data.stats.depth_max, block_data.depth);
-  }
+
 
    // III'. Equality domain metrics, printed before the caller commits to the next branch (or backtracks).
-  if(threadIdx.x == 0 && config.verbose_solving >= 1) {
+  /* if(threadIdx.x == 0 && config.verbose_solving >= 1) {
     auto& eq = *block_data.store;
     grid_data.print_lock.acquire();
     printf("%% [eq-metrics] node=%" PRIu64 " depth=%d is_bot=%d vars=%d classes=%d rep_mismatches=%d max_chain_depth=%d fp_iterations=%d\n",
@@ -1063,18 +1075,17 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
       eq.max_chain_depth(),
       fp_iterations);
     grid_data.print_lock.release();
-  }
+  } */
 
 
-     if(threadIdx.x == 0) {
+  
     // IV. Checking stopping conditions.
-
-    if(block_data.stats.nodes >= config.stop_after_n_nodes
-      || unified_data.stop.test())
-    {
-      block_data.stats.exhaustive = false;
-      stop = true;
-    }
+        if(block_data.stats.nodes >= config.stop_after_n_nodes
+          || unified_data.stop.test())
+        {
+          block_data.stats.exhaustive = false;
+          stop = true;
+        }
   }
 }
 
@@ -1095,6 +1106,8 @@ __global__ void reduce_blocks(UnifiedData* unified_data, GridData* grid_data) {
       if(root.bab->is_satisfaction()) {
         block.best_store->extract(*root.best);
         root.stats.nodes_at_best_obj = block.stats.nodes_at_best_obj;
+        root.stats.eq_classes_best_solution = block.stats.eq_classes_best_solution;
+        root.stats.eq_largest_class_best_solution = block.stats.eq_largest_class_best_solution;
         break;
       }
       else {
@@ -1105,7 +1118,6 @@ __global__ void reduce_blocks(UnifiedData* unified_data, GridData* grid_data) {
         if(is_better || (equal_bound && block_best_time <= grid_best_time)) {
           grid_best_time = block_best_time;
           best_block_idx = i;
-          root.stats.nodes_at_best_obj = block.stats.nodes_at_best_obj;
         }
       }
     }
@@ -1113,6 +1125,9 @@ __global__ void reduce_blocks(UnifiedData* unified_data, GridData* grid_data) {
   // If we found a bound, we copy the best store into the unified data.
   if(!grid_data->appx_best_bound.is_top()) {
     grid_data->blocks[best_block_idx].best_store->copy_to(*root.best);
+    root.stats.eq_classes_best_solution = grid_data->blocks[best_block_idx].stats.eq_classes_best_solution;
+    root.stats.eq_largest_class_best_solution = grid_data->blocks[best_block_idx].stats.eq_largest_class_best_solution;
+    root.stats.nodes_at_best_obj = grid_data->blocks[best_block_idx].stats.nodes_at_best_obj;
   }
 }
 
