@@ -143,6 +143,7 @@ struct Statistics {
   size_t nodes_at_best_obj;
   size_t eq_classes_best_solution;
   size_t eq_largest_class_best_solution;
+  size_t eq_conflict_depth_sum;
   size_t fails;
   size_t failure_depth_sum;
   size_t eq_deduce_fails;
@@ -161,7 +162,7 @@ struct Statistics {
   CUDA Statistics(size_t variables, size_t constraints, bool optimization, bool print_statistics):
     variables(variables), constraints(constraints), optimization(optimization),
     print_statistics(print_statistics), num_blocks(1),
-    nodes(0), nodes_at_best_obj(0), eq_classes_best_solution(0), eq_largest_class_best_solution(0), fails(0), failure_depth_sum(0), eq_deduce_fails(0), solutions(0),
+    nodes(0), nodes_at_best_obj(0), eq_classes_best_solution(0), eq_largest_class_best_solution(0), eq_conflict_depth_sum(0), fails(0), failure_depth_sum(0), eq_deduce_fails(0), solutions(0),
     depth_max(0), exhaustive(true),
     eps_solved_subproblems(0), eps_num_subproblems(1), eps_skipped_subproblems(0),
     num_blocks_done(0), fixpoint_iterations(0), num_deductions(0),
@@ -176,7 +177,7 @@ struct Statistics {
   CUDA Statistics(const Statistics<Alloc>& other):
     variables(other.variables), constraints(other.constraints), optimization(other.optimization),
     print_statistics(other.print_statistics), num_blocks(other.num_blocks),
-    nodes(other.nodes), nodes_at_best_obj(other.nodes_at_best_obj), eq_classes_best_solution(other.eq_classes_best_solution), eq_largest_class_best_solution(other.eq_largest_class_best_solution), fails(other.fails), failure_depth_sum(other.failure_depth_sum), eq_deduce_fails(other.eq_deduce_fails), solutions(other.solutions),
+    nodes(other.nodes), nodes_at_best_obj(other.nodes_at_best_obj), eq_classes_best_solution(other.eq_classes_best_solution), eq_largest_class_best_solution(other.eq_largest_class_best_solution), eq_conflict_depth_sum(other.eq_conflict_depth_sum), fails(other.fails), failure_depth_sum(other.failure_depth_sum), eq_deduce_fails(other.eq_deduce_fails), solutions(other.solutions),
     depth_max(other.depth_max), exhaustive(other.exhaustive),
     eps_solved_subproblems(other.eps_solved_subproblems), eps_num_subproblems(other.eps_num_subproblems),
     eps_skipped_subproblems(other.eps_skipped_subproblems), num_blocks_done(other.num_blocks_done),
@@ -190,6 +191,7 @@ struct Statistics {
     nodes_at_best_obj += other.nodes_at_best_obj;
     fails += other.fails;
     failure_depth_sum += other.failure_depth_sum;
+    eq_conflict_depth_sum += other.eq_conflict_depth_sum;
     eq_deduce_fails += other.eq_deduce_fails;
     solutions += other.solutions;
     depth_max = battery::max(depth_max, other.depth_max);
@@ -353,16 +355,32 @@ public:
     }
   }
 
+  CUDA void print_eq_conflict_depth() const {
+    if(print_statistics) {
+      double avg_eq = eq_deduce_fails == 0
+        ? 0.0
+        : static_cast<double>(eq_conflict_depth_sum) / static_cast<double>(eq_deduce_fails);
+      size_t interval_fails = fails > eq_deduce_fails ? fails - eq_deduce_fails : 0;
+      size_t interval_depth_sum = failure_depth_sum > eq_conflict_depth_sum
+        ? failure_depth_sum - eq_conflict_depth_sum : 0;
+      double avg_interval = interval_fails == 0
+        ? 0.0
+        : static_cast<double>(interval_depth_sum) / static_cast<double>(interval_fails);
+      printf("%%%%%%mzn-stat: avg_depth_eq_conflict=%lf\n", avg_eq);
+      printf("%%%%%%mzn-stat: avg_depth_interval_failure=%lf\n", avg_interval);
+    }
+  }
+
   CUDA void print_mzn_statistics(int verbose = 0) const {
     print_stat("num_blocks", num_blocks);
     print_human_stat(verbose, "nodes", nodes);
     print_human_stat(verbose, "nodes_at_best_obj", nodes_at_best_obj);
     print_stat("eq_classes_best_solution", eq_classes_best_solution);
-    print_stat("eq_largest_class_best_solution", eq_largest_class_best_solution);
     print_stat("failures", fails);
     print_stat("failure_depth_sum", failure_depth_sum);
     print_stat("eq_deduce_fails", eq_deduce_fails);
     print_avg_depth_failure();
+    print_eq_conflict_depth();
     print_stat("variables", variables);
     print_stat("propagators", constraints);
     print_stat("peakDepth", depth_max);

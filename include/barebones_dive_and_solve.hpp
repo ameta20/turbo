@@ -1037,7 +1037,6 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
         if(threadIdx.x == 0) {
           block_data.stats.solutions++;
           block_data.stats.eq_classes_best_solution = block_data.store->num_classes();
-          block_data.stats.eq_largest_class_best_solution = block_data.store->largest_class_size();
           block_data.stats.nodes_at_best_obj = block_data.stats.nodes + 1;
 
           if(config.verbose_solving >= 2) {
@@ -1061,21 +1060,19 @@ __device__ INLINE void propagate(UnifiedData& unified_data, GridData& grid_data,
     block_data.stats.depth_max = battery::max(block_data.stats.depth_max, block_data.depth);
 
 
-   // III'. Equality domain metrics, printed before the caller commits to the next branch (or backtracks).
-  /* if(threadIdx.x == 0 && config.verbose_solving >= 1) {
-    auto& eq = *block_data.store;
-    grid_data.print_lock.acquire();
-    printf("%% [eq-metrics] node=%" PRIu64 " depth=%d is_bot=%d vars=%d classes=%d rep_mismatches=%d max_chain_depth=%d fp_iterations=%d\n",
-      static_cast<uint64_t>(block_data.stats.nodes),
-      block_data.depth,
-      (int)iprop.is_bot(),
-      eq.vars(),
-      eq.num_classes(),
-      eq.num_rep_mismatches(),
-      eq.max_chain_depth(),
-      fp_iterations);
-    grid_data.print_lock.release();
-  } */
+   // III. Equality domain metrics, printed before the caller commits to the next branch (or backtracks)
+    if(config.verbose_solving >= 1) {
+      auto& eq = *block_data.store;
+      grid_data.print_lock.acquire();
+      printf("%% [eq-metrics] node=%" PRIu64 " depth=%d is_bot=%d eq_conflict=%d nr_eq_classes=%d fp_iterations=%d\n",
+        static_cast<uint64_t>(block_data.stats.nodes),
+        block_data.depth,
+        (int)iprop.is_bot(),
+        (eq_conflict_flag != 0 ? 1 : 0),
+        eq.num_classes(),
+        fp_iterations);
+      grid_data.print_lock.release();
+   } 
 
 
   
@@ -1107,7 +1104,6 @@ __global__ void reduce_blocks(UnifiedData* unified_data, GridData* grid_data) {
         block.best_store->extract(*root.best);
         root.stats.nodes_at_best_obj = block.stats.nodes_at_best_obj;
         root.stats.eq_classes_best_solution = block.stats.eq_classes_best_solution;
-        root.stats.eq_largest_class_best_solution = block.stats.eq_largest_class_best_solution;
         break;
       }
       else {
