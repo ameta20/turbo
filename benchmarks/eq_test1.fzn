@@ -1,0 +1,11 @@
+var 1..3: x1;
+var 1..3: x2;
+var 1..3: x3;
+var bool: b12;
+var bool: b23;
+
+constraint int_eq_reif(x1, x2, b12);
+constraint int_eq_reif(x2, x3, b23);
+constraint bool_clause([b12,b23],[]);
+
+solve satisfy;

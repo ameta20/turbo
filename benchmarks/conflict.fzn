@@ -1,0 +1,15 @@
+var 1..20: x1;
+var 1..5: x2;
+var 1..5: x3;
+var bool: b12;   % b12 <-> (x1=x2), forced TRUE unconditionally
+var bool: b23;   % b23 <-> (x2=x3), left FREE -- this is the branching decision
+var bool: b13;   % b13 <-> (x1=x3), forced FALSE unconditionally
+
+constraint int_eq_reif(x1, x2, b12);
+constraint int_eq_reif(x2, x3, b23);
+constraint int_eq_reif(x1, x3, b13);
+
+constraint bool_clause([b12],[]);   % x1 = x2 always (established at root, no branching needed)
+constraint bool_clause([],[b13]);   % x1 != x3 always (established at root, no branching needed)
+
+solve satisfy;

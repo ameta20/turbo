@@ -1,0 +1,9 @@
+var 1..4: x;
+var 1..4: y;
+var 0..1: eq;
+var 0..1: b1;
+var 0..1: b2;
+constraint int_eq_reif(x, y, eq);   % eq <-> (x = y)
+constraint int_le_reif(x, y, b1);   % b1 <-> (x <= y)
+constraint int_le_reif(y, x, b2);   % b2 <-> (y <= x)
+solve satisfy;
