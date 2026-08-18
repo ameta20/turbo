@@ -1,0 +1,126 @@
+%%%mzn-stat: command_line="./build/gpu-release-local/turbo -t 0 -a -n 0 -i -s -v -arch barebones -or 1 -sub 0 -subfactor 300 -stack 0 -fp ac1 -seed 0 -eps_var_order default -eps_value_order default -cutnodes 0 benchmarks/eq_chain.fzn"
+% WARNING: -arch barebones is incompatible with -i and -a (it cannot print intermediate solutions).
+% Input file parsed
+%%%mzn-stat: parsed_variables=7
+%%%mzn-stat: parsed_constraints=12
+% Formula syntactically simplified.
+% Analyzing the constraint network before preprocessing and ternarization...
+%%%mzn-stat: fcn_variables=7
+%%%mzn-stat: fcn_constraints=5
+%%%mzn-stat: fcn_var_occurrences=14
+%%%mzn-stat: fcn_histogram_symbols="{'leq': 1, 'add': 2, 'neg': 3, 'neq': 1, 'equiv': 3, 'eq': 3}"
+%%%mzn-stat: fcn_histogram_reified_predicates="{'eq': 3}"
+%%%mzn-stat: fcn_histogram_vars_degree="{2: 7}"
+%%%mzn-stat: fcn_histogram_constraints_degree="{('add', 3): 1, ('neg', 1): 3, ('neq', 2): 1, ('equiv', 3): 3, ('leq', 3): 1, ('eq', 2): 3}"
+%%%mzn-stat: abstract_domain="pir_itv32_z"
+%%%mzn-stat: entailed_prop_removal="deactivated"
+% Abstract domain allocated.
+% Interpreting the formula...
+% Formula has been interpreted.
+%%%mzn-stat: tcn_variables=16
+%%%mzn-stat: tcn_constraints=9
+% Analyzing the ternary constraint network...
+%%%mzn-stat: tcn_assigned_variables=3
+%%%mzn-stat: tcn_unbounded_variables=5
+%%%mzn-stat: tcn_unassigned_var_occurrences=17
+%%%mzn-stat: tcn_assigned_var_occurrences=6
+%%%mzn-stat: tcn_histogram_symbols="{'eq': 3, 'neq': 1, 'add': 5}"
+%%%mzn-stat: tcn_histogram_reified_predicates="{'eq': 3}"
+%%%mzn-stat: tcn_histogram_unassigned_vars_degree="{1: 1, 2: 8}"
+%%%mzn-stat: tcn_histogram_assigned_vars_degree="{2: 3}"
+%%%mzn-stat: tcn_histogram_vars_dom_size="{2: 3, 4: 4, 1: 4}"
+%%%mzn-stat: preprocessing_icse_eliminated_constraints="[[0], [0]]"
+%%%mzn-stat: preprocessing_algsimp_eliminated_constraints="[0, 0]"
+%%%mzn-stat: preprocessing_algsimp_eliminated_eq_constraints="[0, 0]"
+%%%mzn-stat: preprocessing_entailment_eliminated_constraints="[0, 0]"
+%%%mzn-stat: preprocessing_eliminated_variables="[51, 0]"
+% Formula simplified.
+% Abstract domain allocated.
+% Interpreting the formula...
+% Formula has been interpreted.
+%%%mzn-stat: preprocessed_tcn_variables=13
+%%%mzn-stat: preprocessed_tcn_constraints=9
+% Analyzing the ternary constraint network...
+%%%mzn-stat: preprocessed_tcn_assigned_variables=8
+%%%mzn-stat: preprocessed_tcn_unbounded_variables=0
+%%%mzn-stat: preprocessed_tcn_unassigned_var_occurrences=8
+%%%mzn-stat: preprocessed_tcn_assigned_var_occurrences=15
+%%%mzn-stat: preprocessed_tcn_histogram_symbols="{'eq': 3, 'neq': 1, 'add': 5}"
+%%%mzn-stat: preprocessed_tcn_histogram_reified_predicates="{'eq': 3}"
+%%%mzn-stat: preprocessed_tcn_histogram_unassigned_vars_degree="{2: 4}"
+%%%mzn-stat: preprocessed_tcn_histogram_assigned_vars_degree="{1: 1, 2: 7}"
+%%%mzn-stat: preprocessed_tcn_histogram_vars_dom_size="{2: 8, 4: 4, 1: 1}"
+%%%mzn-stat: preprocessing_time=0.018000
+%%%mzn-stat-end
+% max_blocks_per_sm=2
+%%%mzn-stat: subproblems_power=0
+%%%mzn-stat: heap_memory=364192
+%   [364.19KB]
+%%%mzn-stat: mem_per_block=361928
+%   [361.93KB]
+%%%mzn-stat: total_global_mem_bytes=42405855232
+%   [42.41GB]
+%%%mzn-stat: num_blocks=1
+% max_shared_memory=167936
+% static_shared_memory=80
+%%%mzn-stat: memory_configuration="tcn_shared"
+%%%mzn-stat: shared_mem=576
+%   [0.58KB]
+%%%mzn-stat: store_mem=176
+%   [0.18KB]
+%%%mzn-stat: propagator_mem=272
+%   [0.27KB]
+%%%mzn-stat-end
+% GPU kernel started, starting solving...
+----------
+==========
+%%%mzn-stat: problem_path="benchmarks/eq_chain.fzn"
+%%%mzn-stat: solver="Turbo"
+%%%mzn-stat: version="1.3.0"
+%%%mzn-stat: hardware="unspecified"
+%%%mzn-stat: arch="barebones"
+%%%mzn-stat: fixpoint="ac1"
+%%%mzn-stat: subproblems_factor=300
+%%%mzn-stat: seed=0
+%%%mzn-stat: eps_var_order="default"
+%%%mzn-stat: eps_value_order="default"
+%%%mzn-stat: free_search="no"
+%%%mzn-stat: or_nodes=1
+%%%mzn-stat: timeout_ms=0
+%%%mzn-stat: threads_per_block=256
+%%%mzn-stat: stack_size=0
+%%%mzn-stat: cuda_version=12080
+%%%mzn-stat: cutnodes=0
+%%%mzn-stat: num_blocks=1
+%%%mzn-stat: nodes=69
+%   [0.00M]
+%%%mzn-stat: nodes_at_best_obj=4
+%%%mzn-stat: failures=4
+%%%mzn-stat: avg_depth_failure=5.250000
+%%%mzn-stat: variables=13
+%%%mzn-stat: propagators=9
+%%%mzn-stat: peakDepth=8
+%%%mzn-stat: initTime=0.018000
+%%%mzn-stat: solveTime=0.955000
+%%%mzn-stat: num_solutions=1
+%%%mzn-stat: eps_num_subproblems=1
+%%%mzn-stat: eps_solved_subproblems=1
+%%%mzn-stat: eps_skipped_subproblems=0
+%%%mzn-stat: num_blocks_done=1
+%%%mzn-stat: fixpoint_iterations=250
+%   [0.00M]
+%%%mzn-stat: num_deductions=2250
+%   [0.00M]
+%%%mzn-stat: cumulative_time_block_sec=0.001000
+%%%mzn-stat: deductions_per_block_second=2250000.000000
+%%%mzn-stat: solve_time=0.955000
+%%%mzn-stat: search_time=0.000000
+%%%mzn-stat: fixpoint_time=0.000000
+%%%mzn-stat: transfer_cpu2gpu_time=0.000000
+%%%mzn-stat: transfer_gpu2cpu_time=0.000000
+%%%mzn-stat: select_fp_functions_time=0.000000
+%%%mzn-stat: wait_cpu_time=0.000000
+%%%mzn-stat: dive_time=0.000000
+%%%mzn-stat: best_obj_time=0.855000
+%%%mzn-stat: first_block_idle_time=0.856000
+%%%mzn-stat-end
